@@ -144,7 +144,7 @@ export default function Index() {
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const cartTotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (!checkoutForm.name || !checkoutForm.email || !checkoutForm.phone || !checkoutForm.address) {
       toast({
         title: 'Ошибка',
@@ -154,14 +154,42 @@ export default function Index() {
       return;
     }
     
-    toast({
-      title: 'Заказ оформлен!',
-      description: `Заказ на сумму ${cartTotal.toLocaleString()} ₽ успешно создан`
-    });
-    
-    setCartItems([]);
-    setIsCheckoutOpen(false);
-    setCheckoutForm({ name: '', email: '', phone: '', address: '' });
+    try {
+      const response = await fetch('https://functions.poehali.dev/5a8e8a66-4e18-4006-9788-a90a0e783580', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          amount: cartTotal,
+          description: `Заказ на ${cartCount} товар(ов)`,
+          email: checkoutForm.email,
+          return_url: window.location.origin
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.payment_url) {
+        window.location.href = data.payment_url;
+      } else if (response.status === 503) {
+        toast({
+          title: 'Заказ создан!',
+          description: `Заказ на сумму ${cartTotal.toLocaleString()} ₽ успешно создан. Платёжная система будет подключена позже.`
+        });
+        setCartItems([]);
+        setIsCheckoutOpen(false);
+        setCheckoutForm({ name: '', email: '', phone: '', address: '' });
+      } else {
+        throw new Error(data.message || 'Ошибка создания платежа');
+      }
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: error instanceof Error ? error.message : 'Не удалось создать платёж',
+        variant: 'destructive'
+      });
+    }
   };
 
   return (
