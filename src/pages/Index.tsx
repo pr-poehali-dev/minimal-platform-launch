@@ -3,7 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import Icon from '@/components/ui/icon';
+import { useToast } from '@/hooks/use-toast';
 
 type Product = {
   id: number;
@@ -16,6 +21,8 @@ type Product = {
   rating: number;
   reviews: number;
 };
+
+type CartItem = Product & { quantity: number };
 
 const mockProducts: Product[] = [
   {
@@ -81,10 +88,18 @@ const mockProducts: Product[] = [
 const categories = ['Все', 'Электроника', 'Аксессуары', 'Обувь', 'Одежда'];
 
 export default function Index() {
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('home');
   const [selectedCategory, setSelectedCategory] = useState('Все');
-  const [cartCount, setCartCount] = useState(0);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [checkoutForm, setCheckoutForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: ''
+  });
 
   const filteredProducts = mockProducts.filter(product => {
     const matchesCategory = selectedCategory === 'Все' || product.category === selectedCategory;
@@ -92,8 +107,61 @@ export default function Index() {
     return matchesCategory && matchesSearch;
   });
 
-  const addToCart = () => {
-    setCartCount(prev => prev + 1);
+  const addToCart = (product: Product) => {
+    setCartItems(prev => {
+      const existing = prev.find(item => item.id === product.id);
+      if (existing) {
+        return prev.map(item => 
+          item.id === product.id 
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        );
+      }
+      return [...prev, { ...product, quantity: 1 }];
+    });
+    toast({
+      title: 'Товар добавлен',
+      description: `${product.name} добавлен в корзину`
+    });
+  };
+
+  const removeFromCart = (productId: number) => {
+    setCartItems(prev => prev.filter(item => item.id !== productId));
+  };
+
+  const updateQuantity = (productId: number, delta: number) => {
+    setCartItems(prev => 
+      prev.map(item => {
+        if (item.id === productId) {
+          const newQuantity = item.quantity + delta;
+          return newQuantity > 0 ? { ...item, quantity: newQuantity } : item;
+        }
+        return item;
+      }).filter(item => item.quantity > 0)
+    );
+  };
+
+  const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+  const cartTotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+  const handleCheckout = () => {
+    if (!checkoutForm.name || !checkoutForm.email || !checkoutForm.phone || !checkoutForm.address) {
+      toast({
+        title: 'Ошибка',
+        description: 'Заполните все поля',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
+    toast({
+      title: 'Заказ оформлен!',
+      description: `Заказ на сумму ${cartTotal.toLocaleString()} ₽ успешно создан`
+    });
+    
+    setCartItems([]);
+    setIsCheckoutOpen(false);
+    setCheckoutForm({ name: '', email: '', phone: '', address: '' });
   };
 
   return (
@@ -136,14 +204,95 @@ export default function Index() {
             </nav>
 
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="relative">
-                <Icon name="ShoppingCart" size={20} />
-                {cartCount > 0 && (
-                  <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
-                    {cartCount}
-                  </Badge>
-                )}
-              </Button>
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon" className="relative">
+                    <Icon name="ShoppingCart" size={20} />
+                    {cartCount > 0 && (
+                      <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
+                        {cartCount}
+                      </Badge>
+                    )}
+                  </Button>
+                </SheetTrigger>
+                <SheetContent className="w-full sm:max-w-lg">
+                  <SheetHeader>
+                    <SheetTitle>Корзина</SheetTitle>
+                  </SheetHeader>
+                  
+                  {cartItems.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-[60vh] text-center">
+                      <Icon name="ShoppingCart" size={64} className="text-muted-foreground mb-4" />
+                      <p className="text-lg font-medium mb-2">Корзина пуста</p>
+                      <p className="text-sm text-muted-foreground">Добавьте товары из каталога</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col h-full">
+                      <div className="flex-1 overflow-auto py-6 space-y-4">
+                        {cartItems.map(item => (
+                          <div key={item.id} className="flex gap-4">
+                            <div className="w-20 h-20 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                              <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-medium truncate">{item.name}</h4>
+                              <p className="text-sm text-muted-foreground">{item.price.toLocaleString()} ₽</p>
+                              <div className="flex items-center gap-2 mt-2">
+                                <Button 
+                                  size="icon" 
+                                  variant="outline" 
+                                  className="h-7 w-7"
+                                  onClick={() => updateQuantity(item.id, -1)}
+                                >
+                                  <Icon name="Minus" size={14} />
+                                </Button>
+                                <span className="text-sm font-medium w-8 text-center">{item.quantity}</span>
+                                <Button 
+                                  size="icon" 
+                                  variant="outline" 
+                                  className="h-7 w-7"
+                                  onClick={() => updateQuantity(item.id, 1)}
+                                >
+                                  <Icon name="Plus" size={14} />
+                                </Button>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end justify-between">
+                              <Button 
+                                size="icon" 
+                                variant="ghost" 
+                                className="h-8 w-8"
+                                onClick={() => removeFromCart(item.id)}
+                              >
+                                <Icon name="X" size={16} />
+                              </Button>
+                              <p className="font-semibold">{(item.price * item.quantity).toLocaleString()} ₽</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <Separator className="my-4" />
+                      
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between text-lg font-bold">
+                          <span>Итого:</span>
+                          <span>{cartTotal.toLocaleString()} ₽</span>
+                        </div>
+                        <Button 
+                          size="lg" 
+                          className="w-full gap-2"
+                          onClick={() => setIsCheckoutOpen(true)}
+                        >
+                          <Icon name="CreditCard" size={20} />
+                          Оформить заказ
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </SheetContent>
+              </Sheet>
+              
               <Button variant="ghost" size="icon">
                 <Icon name="User" size={20} />
               </Button>
@@ -223,7 +372,7 @@ export default function Index() {
                           </div>
                           <div className="flex items-center justify-between pt-2">
                             <span className="text-2xl font-bold">{product.price.toLocaleString()} ₽</span>
-                            <Button size="sm" className="gap-2" onClick={addToCart}>
+                            <Button size="sm" className="gap-2" onClick={() => addToCart(product)}>
                               <Icon name="ShoppingCart" size={16} />
                               Купить
                             </Button>
@@ -329,7 +478,7 @@ export default function Index() {
                         </div>
                         <div className="flex items-center justify-between pt-2">
                           <span className="text-2xl font-bold">{product.price.toLocaleString()} ₽</span>
-                          <Button size="sm" className="gap-2" onClick={addToCart}>
+                          <Button size="sm" className="gap-2" onClick={() => addToCart(product)}>
                             <Icon name="ShoppingCart" size={16} />
                             Купить
                           </Button>
@@ -445,6 +594,81 @@ export default function Index() {
           </div>
         </div>
       </footer>
+
+      <Dialog open={isCheckoutOpen} onOpenChange={setIsCheckoutOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Оформление заказа</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Имя и фамилия</Label>
+              <Input 
+                id="name" 
+                placeholder="Иван Иванов"
+                value={checkoutForm.name}
+                onChange={(e) => setCheckoutForm(prev => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input 
+                id="email" 
+                type="email"
+                placeholder="ivan@example.com"
+                value={checkoutForm.email}
+                onChange={(e) => setCheckoutForm(prev => ({ ...prev, email: e.target.value }))}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="phone">Телефон</Label>
+              <Input 
+                id="phone" 
+                type="tel"
+                placeholder="+7 (999) 123-45-67"
+                value={checkoutForm.phone}
+                onChange={(e) => setCheckoutForm(prev => ({ ...prev, phone: e.target.value }))}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="address">Адрес доставки</Label>
+              <Input 
+                id="address" 
+                placeholder="г. Москва, ул. Примерная, д. 1"
+                value={checkoutForm.address}
+                onChange={(e) => setCheckoutForm(prev => ({ ...prev, address: e.target.value }))}
+              />
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Товары ({cartCount})</span>
+                <span>{cartTotal.toLocaleString()} ₽</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Доставка</span>
+                <span className="text-green-600">Бесплатно</span>
+              </div>
+              <Separator />
+              <div className="flex justify-between text-lg font-bold">
+                <span>Итого:</span>
+                <span>{cartTotal.toLocaleString()} ₽</span>
+              </div>
+            </div>
+
+            <Button size="lg" className="w-full gap-2" onClick={handleCheckout}>
+              <Icon name="Check" size={20} />
+              Подтвердить заказ
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
